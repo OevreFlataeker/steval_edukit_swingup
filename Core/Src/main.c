@@ -108,7 +108,7 @@ int main(void)
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 0);
   while (1)
   {
-	  // HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
 	  BSP_MotorControl_GoTo(0, 300);
 	  BSP_MotorControl_WaitWhileActive(0);
 	  HAL_Delay(50);

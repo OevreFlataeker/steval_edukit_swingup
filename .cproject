@@ -89,13 +89,13 @@
                                     									
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/Include"/>
                                     									
-                                    <listOptionValue builtIn="false" value="&quot;${workspace_loc:/EDUKit/Drivers/BSP/X-NUCLEO-IHMxx/Inc}&quot;"/>
+                                    <listOptionValue builtIn="false" value="../Drivers/BSP/Components/Common/Inc"/>
                                     									
-                                    <listOptionValue builtIn="false" value="&quot;${workspace_loc:/EDUKit/Drivers/BSP/Components/Common/Inc}&quot;"/>
+                                    <listOptionValue builtIn="false" value="../Drivers/BSP/Components/l6474/Inc"/>
                                     									
-                                    <listOptionValue builtIn="false" value="&quot;${workspace_loc:/EDUKit/Drivers/BSP/Components/l6474/Inc}&quot;"/>
+                                    <listOptionValue builtIn="false" value="../Drivers/BSP/X-NUCLEO-IHMxx/Inc"/>
                                     									
-                                    <listOptionValue builtIn="false" value="&quot;${workspace_loc:/EDUKit/Drivers/BSP/STM32F4xx_Nucleo/Inc}&quot;"/>
+                                    <listOptionValue builtIn="false" value="../Drivers/BSP/STM32F4xx_Nucleo/Inc"/>
                                     								
                                 </option>
                                 								
