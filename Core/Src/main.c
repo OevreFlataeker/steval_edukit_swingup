@@ -24,6 +24,9 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <stddef.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -106,7 +109,7 @@ int main(void)
   char *tmp_string = "Hello world\r\n";
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 1);
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 0);
-  while (1)
+  while (true)
   {
 	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
 	  BSP_MotorControl_GoTo(0, 300);
