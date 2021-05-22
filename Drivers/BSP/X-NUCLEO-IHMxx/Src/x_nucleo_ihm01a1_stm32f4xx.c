@@ -226,7 +226,7 @@ void L6474_Board_Pwm1SetFreq(uint16_t newFreq)
   uint32_t period = (sysFreq/ (TIMER_PRESCALER * BSP_MOTOR_CONTROL_BOARD_PWM1_FREQ_RESCALER * (uint32_t)newFreq)) - 1;
   
   __HAL_TIM_SetAutoreload(&hTimPwm1, period);
-  __HAL_TIM_SetCompare(&hTimPwm1, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM1, period >> 1);
+//  __HAL_TIM_SetCompare(&hTimPwm1, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM1, period >> 1);
   HAL_TIM_PWM_Start_IT(&hTimPwm1, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM1);  
 }
 
@@ -242,7 +242,7 @@ void L6474_Board_Pwm2SetFreq(uint16_t newFreq)
   uint32_t period = (sysFreq/ (TIMER_PRESCALER * BSP_MOTOR_CONTROL_BOARD_PWM2_FREQ_RESCALER  * (uint32_t)newFreq)) - 1;
   
   __HAL_TIM_SetAutoreload(&hTimPwm2, period);
-  __HAL_TIM_SetCompare(&hTimPwm2, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM2, period >> 1);
+//  __HAL_TIM_SetCompare(&hTimPwm2, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM2, period >> 1);
   HAL_TIM_PWM_Start_IT(&hTimPwm2, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM2);
 }
 /******************************************************//**

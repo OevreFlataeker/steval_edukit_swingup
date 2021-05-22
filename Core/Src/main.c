@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -46,12 +47,42 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
-/* USER CODE BEGIN PV */
+static volatile uint16_t gLastError;
 
+L6474_Init_t gL6474InitParams =
+{
+    160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
+    160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
+    1600,                              /// Maximum speed in step/s. Range: (30..10000].
+    800,                               ///Minimum speed in step/s. Range: [30..10000).
+    450,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
+    900,                               ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
+    L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
+    L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
+    L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
+    L6474_SYNC_SEL_1_2,                /// Sync selection (SYNC_SEL field of STEP_MODE register).
+    L6474_FAST_STEP_12us,              /// Fall time value (T_FAST field of T_FAST register). Range: 2us to 32us.
+    L6474_TOFF_FAST_8us,               /// Maximum fast decay time (T_OFF field of T_FAST register). Range: 2us to 32us.
+    3,                                 /// Minimum ON time in us (TON_MIN register). Range: 0.5us to 64us.
+    21,                                /// Minimum OFF time in us (TOFF_MIN register). Range: 0.5us to 64us.
+    L6474_CONFIG_TOFF_044us,           /// Target Swicthing Period (field TOFF of CONFIG register).
+    L6474_CONFIG_SR_320V_us,           /// Slew rate (POW_SR field of CONFIG register).
+    L6474_CONFIG_INT_16MHZ,            /// Clock setting (OSC_CLK_SEL field of CONFIG register).
+    (L6474_ALARM_EN_OVERCURRENT      |
+     L6474_ALARM_EN_THERMAL_SHUTDOWN |
+     L6474_ALARM_EN_THERMAL_WARNING  |
+     L6474_ALARM_EN_UNDERVOLTAGE     |
+     L6474_ALARM_EN_SW_TURN_ON       |
+     L6474_ALARM_EN_WRONG_NPERF_CMD)    /// Alarm (ALARM_EN register).
+};
+
+/* USER CODE BEGIN PV */
+int encoder_position;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,12 +91,43 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-
+int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/*
+ * Encoder position read (returns signed integer)
+ *
+ * Returns error if overflow detected
+ */
+
+int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
+	uint32_t cnt3;
+	int range_error;
+	cnt3 = __HAL_TIM_GET_COUNTER(htimer);
+
+	if (cnt3 >= 32768) {
+		*encoder_position = (int) (cnt3);
+		*encoder_position = *encoder_position - 65536;
+	} else {
+		*encoder_position = (int) (cnt3);
+	}
+
+	range_error = 0;
+	if (*encoder_position <= -32768) {
+		range_error = -1;
+		*encoder_position = -32768;
+	}
+	if (*encoder_position >= 32767) {
+		range_error = 1;
+		*encoder_position = 32767;
+	}
+	return range_error;
+}
 
 /* USER CODE END 0 */
 
@@ -100,24 +162,36 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_SPI1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+  HAL_TIM_PWM_Start_IT(&htim2, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  char *tmp_string = "Hello world\r\n";
+  char tmp_string[32];
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 1);
-  BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 0);
+  BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
+
+  // Attach handlers
+  BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);
+  BSP_MotorControl_AttachErrorHandler(Motor_Error_Handler);
+
   while (true)
   {
-	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+	  // Let motor wiggle around
 	  BSP_MotorControl_GoTo(0, 300);
 	  BSP_MotorControl_WaitWhileActive(0);
-	  HAL_Delay(50);
+	  HAL_Delay(400);
 	  BSP_MotorControl_GoTo(0, -300);
 	  BSP_MotorControl_WaitWhileActive(0);
-	  HAL_Delay(50);
+	  HAL_Delay(400);
+
+	  encoder_position_read(&encoder_position, &htim3);
+	  sprintf(tmp_string,"%d\r\n", encoder_position);
+	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -208,6 +282,55 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 65535;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -219,8 +342,8 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 0 */
 
+  TIM_Encoder_InitTypeDef sConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
 
@@ -231,7 +354,16 @@ static void MX_TIM3_Init(void)
   htim3.Init.Period = 65535;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -241,18 +373,9 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
-  HAL_TIM_MspPostInit(&htim3);
 
 }
 
@@ -313,7 +436,96 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+  * @brief  This function is the User handler for the flag interrupt
+  * @param  None
+  * @retval None
+  */
+void MyFlagInterruptHandler(void)
+{
+  /* Get the value of the status register via the L6474 command GET_STATUS */
+  uint16_t statusRegister = BSP_MotorControl_CmdGetStatus(0);
 
+  /* Check HIZ flag: if set, power brigdes are disabled */
+  if ((statusRegister & L6474_STATUS_HIZ) == L6474_STATUS_HIZ)
+  {
+    // HIZ state
+    // Action to be customized
+  }
+
+  /* Check direction bit */
+  if ((statusRegister & L6474_STATUS_DIR) == L6474_STATUS_DIR)
+  {
+    // Forward direction is set
+    // Action to be customized
+  }
+  else
+  {
+    // Backward direction is set
+    // Action to be customized
+  }
+
+  /* Check NOTPERF_CMD flag: if set, the command received by SPI can't be performed */
+  /* This often occures when a command is sent to the L6474 */
+  /* while it is in HIZ state */
+  if ((statusRegister & L6474_STATUS_NOTPERF_CMD) == L6474_STATUS_NOTPERF_CMD)
+  {
+      // Command received by SPI can't be performed
+     // Action to be customized
+  }
+
+  /* Check WRONG_CMD flag: if set, the command does not exist */
+  if ((statusRegister & L6474_STATUS_WRONG_CMD) == L6474_STATUS_WRONG_CMD)
+  {
+     //command received by SPI does not exist
+     // Action to be customized
+  }
+
+  /* Check UVLO flag: if not set, there is an undervoltage lock-out */
+  if ((statusRegister & L6474_STATUS_UVLO) == 0)
+  {
+     //undervoltage lock-out
+     // Action to be customized
+  }
+
+  /* Check TH_WRN flag: if not set, the thermal warning threshold is reached */
+  if ((statusRegister & L6474_STATUS_TH_WRN) == 0)
+  {
+    //thermal warning threshold is reached
+    // Action to be customized
+  }
+
+  /* Check TH_SHD flag: if not set, the thermal shut down threshold is reached */
+  if ((statusRegister & L6474_STATUS_TH_SD) == 0)
+  {
+    //thermal shut down threshold is reached
+    // Action to be customized
+  }
+
+  /* Check OCD  flag: if not set, there is an overcurrent detection */
+  if ((statusRegister & L6474_STATUS_OCD) == 0)
+  {
+    //overcurrent detection
+    // Action to be customized
+  }
+
+}
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @param  error number of the error
+  * @retval None
+  */
+void Motor_Error_Handler(uint16_t error)
+{
+  /* Backup error number */
+  gLastError = error;
+
+  /* Infinite loop */
+  while(1)
+  {
+  }
+}
 /* USER CODE END 4 */
 
 /**

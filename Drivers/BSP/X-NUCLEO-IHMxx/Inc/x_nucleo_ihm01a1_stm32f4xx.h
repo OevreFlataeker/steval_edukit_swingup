@@ -72,10 +72,10 @@
 #define EXTI_MCU_LINE_IRQn           (EXTI15_10_IRQn)
 
 /// Timer used for PWM1
-#define BSP_MOTOR_CONTROL_BOARD_TIMER_PWM1      (TIM3)
+#define BSP_MOTOR_CONTROL_BOARD_TIMER_PWM1      (TIM2) // We need to switch TIM2 and TIM3 because the rotary encoder TIM is the same that is used internally for the PWM, so we need to reroute it
 
 /// Timer used for PWM2
-#define BSP_MOTOR_CONTROL_BOARD_TIMER_PWM2      (TIM2)
+#define BSP_MOTOR_CONTROL_BOARD_TIMER_PWM2      (TIM3) // We need to switch TIM2 and TIM3 because the rotary encoder TIM is the same that is used internally for the PWM, so we need to reroute it
 
 /// Timer used for PWM3
 #define BSP_MOTOR_CONTROL_BOARD_TIMER_PWM3      (TIM4)
@@ -99,28 +99,28 @@
 #define BSP_MOTOR_CONTROL_BOARD_HAL_ACT_CHAN_TIMER_PWM3      (HAL_TIM_ACTIVE_CHANNEL_3)
 
 /// Timer Clock Enable for PWM1
-#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM1_CLCK_ENABLE()  __TIM3_CLK_ENABLE()
+#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM1_CLCK_ENABLE()  __TIM2_CLK_ENABLE() // We need to switch TIM2 and TIM3 because the rotary encoder TIM is the same that is used internally for the PWM, so we need to reroute it
 
 /// Timer Clock Enable for PWM2
-#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM2_CLCK_ENABLE()    __TIM2_CLK_ENABLE()
+#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM2_CLCK_ENABLE()    __TIM3_CLK_ENABLE()
 
 /// Timer Clock Enable for PWM1
 #define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM3_CLCK_ENABLE()    __TIM4_CLK_ENABLE()
 
 /// Timer Clock Disable for PWM1
-#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM1_CLCK_DISABLE()  __TIM3_CLK_DISABLE()
+#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM1_CLCK_DISABLE()  __TIM2_CLK_DISABLE() // We need to switch TIM2 and TIM3 because the rotary encoder TIM is the same that is used internally for the PWM, so we need to reroute it
 
 /// Timer Clock Disable for PWM2
-#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM2_CLCK_DISABLE()    __TIM2_CLK_DISABLE()
+#define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM2_CLCK_DISABLE()    __TIM3_CLK_DISABLE()
 
 /// Timer Clock Disable for PWM3
 #define __BSP_MOTOR_CONTROL_BOARD_TIMER_PWM3_CLCK_DISABLE()    __TIM4_CLK_DISABLE()
 
 /// PWM1 global interrupt
-#define BSP_MOTOR_CONTROL_BOARD_PWM1_IRQn   (TIM3_IRQn)
+#define BSP_MOTOR_CONTROL_BOARD_PWM1_IRQn   (TIM2_IRQn)// We need to switch TIM2 and TIM3 because the rotary encoder TIM is the same that is used internally for the PWM, so we need to reroute it
 
 /// PWM2 global interrupt
-#define BSP_MOTOR_CONTROL_BOARD_PWM2_IRQn   (TIM2_IRQn)
+#define BSP_MOTOR_CONTROL_BOARD_PWM2_IRQn   (TIM3_IRQn)
 
 /// PWM3 global interrupt
 #define BSP_MOTOR_CONTROL_BOARD_PWM3_IRQn   (TIM4_IRQn)
@@ -140,7 +140,7 @@
 #endif /* #ifndef BSP_MOTOR_CONTROL_BOARD_USE_SPI2 */
 
 /// PWM1 frequency rescaler (1 for HW PWM, 2 for SW PWM)
-#define BSP_MOTOR_CONTROL_BOARD_PWM1_FREQ_RESCALER    (1)   
+#define BSP_MOTOR_CONTROL_BOARD_PWM1_FREQ_RESCALER    (1) // We need to switch TIM2 and TIM3 because the rotary encoder TIM is the same that is used internally for the PWM, so we need to reroute it
 /// PWM2 frequency rescaler (1 for HW PWM, 2 for SW PWM)
 #define BSP_MOTOR_CONTROL_BOARD_PWM2_FREQ_RESCALER    (1)   
 /// PWM3 frequency rescaler (1 for HW PWM, 2 for SW PWM)   
