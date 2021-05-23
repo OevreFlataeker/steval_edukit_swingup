@@ -37,6 +37,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define MOVE_MOTOR 1
+#define READ_ENCODER 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -60,8 +62,8 @@ L6474_Init_t gL6474InitParams =
     160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
     1600,                              /// Maximum speed in step/s. Range: (30..10000].
     800,                               ///Minimum speed in step/s. Range: [30..10000).
-    450,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
-    900,                               ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
+    800,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
+    2000,                               ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
     L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
     L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
     L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
@@ -82,10 +84,13 @@ L6474_Init_t gL6474InitParams =
 };
 
 /* USER CODE BEGIN PV */
-int encoder_position;
+int encoder_position = 0, max_encoder_position = 0, previous_encoder_position = 0;
+bool handled_peak = false, peaked = false, zero_crossed;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
+bool oppositeSigns(int x, int y);
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -98,6 +103,11 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+bool oppositeSigns(int x, int y)
+{
+    return ((x ^ y) < 0);
+}
 
 /*
  * Encoder position read (returns signed integer)
@@ -126,6 +136,31 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
 		range_error = 1;
 		*encoder_position = 32767;
 	}
+
+	// Detect if we passed the bottom, then re-arm peak flag
+	if (oppositeSigns(*encoder_position, previous_encoder_position))
+	{
+		peaked = false;
+		zero_crossed = true;
+	}
+
+	if (!peaked)
+	{
+		// Check if higher than previous
+		if (abs(*encoder_position) >= abs(max_encoder_position))
+		{
+			max_encoder_position = *encoder_position;
+		}
+		else
+		{
+			// Disable check until revisiting bottom
+			peaked = true;
+			handled_peak = false;
+		}
+	}
+
+	previous_encoder_position = *encoder_position;
+
 	return range_error;
 }
 
@@ -138,7 +173,10 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+#if MOVE_MOTOR
+	motorDir_t direction = FORWARD;
+	bool doMotor = true;
+#endif
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -164,22 +202,31 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+#if MOVE_MOTOR
   HAL_TIM_PWM_Start_IT(&htim2, TIM_CHANNEL_2);
+#endif
+#if READ_ENCODER
+  HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   char tmp_string[32];
+#if MOVE_MOTOR
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 1);
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
+
+
 
   // Attach handlers
   BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);
   BSP_MotorControl_AttachErrorHandler(Motor_Error_Handler);
-
+#endif
   while (true)
   {
+#if MOVE_MOTOR
+	  /*
 	  // Let motor wiggle around
 	  BSP_MotorControl_GoTo(0, 300);
 	  BSP_MotorControl_WaitWhileActive(0);
@@ -187,11 +234,48 @@ int main(void)
 	  BSP_MotorControl_GoTo(0, -300);
 	  BSP_MotorControl_WaitWhileActive(0);
 	  HAL_Delay(400);
+	  */
+	  if (doMotor)
+	  {
+		  BSP_MotorControl_Run(0, direction);
+	  }
+	  else
+	  {
+		  BSP_MotorControl_HardStop(0);
+	  }
 
+#endif
+#if READ_ENCODER
 	  encoder_position_read(&encoder_position, &htim3);
 	  sprintf(tmp_string,"%d\r\n", encoder_position);
 	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
 
+	  // We have a peaked but did not handle it yet
+	  if (peaked && !handled_peak)
+	  {
+		  max_encoder_position = 0;
+		  handled_peak = true;
+		  direction = direction == FORWARD ? BACKWARD : FORWARD;
+		  doMotor = false;
+		  sprintf(tmp_string,"PEAK\r\n");
+		  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+	  }
+
+#if MOVE_MOTOR
+	  if (zero_crossed)
+	  {
+		  /*
+		  if (BSP_MotorControl_GetMaxSpeed(0) < 1000)
+		  {
+			  BSP_MotorControl_SetMaxSpeed(0,BSP_MotorControl_GetMaxSpeed(0) + 50);
+		  }
+		  */
+		  doMotor = true;
+		  zero_crossed = false;
+	  }
+#endif
+	  HAL_Delay(100);
+#endif
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
