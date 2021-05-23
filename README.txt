@@ -38,3 +38,4 @@ https://www.st.com/content/st_com/en/campaigns/educationalplatforms/motorcontrol
 
 Version 2.0 of the firmware has a very stable algorithm to keep the pendulum upright. 
 
+
