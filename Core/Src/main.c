@@ -265,6 +265,7 @@ int main(void)
 	  if (zero_crossed)
 	  {
 		  /*
+		  // Increasing speed didn't really help after some iterations.
 		  if (BSP_MotorControl_GetMaxSpeed(0) < 1000)
 		  {
 			  BSP_MotorControl_SetMaxSpeed(0,BSP_MotorControl_GetMaxSpeed(0) + 50);
