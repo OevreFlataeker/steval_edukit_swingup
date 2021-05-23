@@ -4,15 +4,25 @@
   * @file           : main.c
   * @brief          : Main program body
   ******************************************************************************
-  * @attention
+  * Demo project for the STEVAL-EDUKIT pendulum system.
+  * This code tries to swing up the pendulum up into the upright position to let then
+  * take over the existing demo code from ST to keep it upright.
   *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
+  * Explanation of overall setup:
+  * The integration of the rotary encoder to read the pendulum angle complicates the vanilla setup as the encoder
+  * is read using TIM3 in quadrature encoder mode (i.e. the external signal of the encoder "drives" the timer forwards and backwards).
+  * Unfortunately, the IHM01A1 code expects to get the PWM signal to drive the motor from TIM3 (via PC7, alternate function TIM3_CH2) but both things are of course not possible at once.
   *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
+  * Thus a trick is used here:
+  * We use TIM2 to create the actual PWM signal and once the signal is output we copy/replay the wave form MANUALLY through the desired pin PC7.
+  *
+  * See void "HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)" in stm32f4xx_hal_msp.c for details how this is done.
+  * All peripherals are configured using CubeMX integration/.ioc file. However the IHM01A1 code seems to do this on it's own (ref file x_nucleo_ihm01a1_stm32f4xx.L6474_Board_SpiInit() and L6474_Board_PwmInit())
+  * Presumable the functions HAL_TIM_MspPostInit(), HAL_TIM_PWM_MspInit(), HAL_SPI_MspInit(), ... in file stm32f4xx_hal_msp.c are not really needed therefore.
+  * If this assumption holds, they will be removed in a later version.
+  *
+  * The current version manages to have the pendulum swing up for a little bit over the horizontal plane but fails to get it any higher.
+  * I presume this is due to the rotary motion counter-acting against the forward/backward acceleration of the motor. Both need to be smoothly synchronized.
   *
   ******************************************************************************
   */
@@ -56,6 +66,15 @@ UART_HandleTypeDef huart2;
 
 static volatile uint16_t gLastError;
 
+/* USER CODE BEGIN PV */
+int encoder_position = 0, max_encoder_position = 0, previous_encoder_position = 0;
+bool handled_peak = false, peaked = false, zero_crossed;
+
+/*
+ * The following initialization struct is a little bit trial n error:
+ * Overcurrent threshold (2000) should not be higher than the current your power supply is able to deliver
+ * Acceleration and speed settings can be played with and they seem to affect the counter-acting forces to a certain extent.
+ */
 L6474_Init_t gL6474InitParams =
 {
     160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
@@ -63,7 +82,7 @@ L6474_Init_t gL6474InitParams =
     1600,                              /// Maximum speed in step/s. Range: (30..10000].
     800,                               ///Minimum speed in step/s. Range: [30..10000).
     800,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
-    2000,                               ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
+    2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
     L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
     L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
     L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
@@ -83,30 +102,43 @@ L6474_Init_t gL6474InitParams =
      L6474_ALARM_EN_WRONG_NPERF_CMD)    /// Alarm (ALARM_EN register).
 };
 
-/* USER CODE BEGIN PV */
-int encoder_position = 0, max_encoder_position = 0, previous_encoder_position = 0;
-bool handled_peak = false, peaked = false, zero_crossed;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-bool oppositeSigns(int x, int y);
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
+
 /* USER CODE BEGIN PFP */
+bool oppositeSigns(int x, int y);
+void ITM_SendString(char *str);
 int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/*
+ * Returns true if the two arguments have opposite sign, false if not
+ * @retval bool
+ */
 bool oppositeSigns(int x, int y)
 {
     return ((x ^ y) < 0);
+}
+
+/*
+ * Prints a string via ITM
+ */
+void ITM_SendString(char *ptr)
+{
+	while (*ptr)
+	{
+		ITM_SendChar(*ptr++);
+	}
 }
 
 /*
@@ -137,23 +169,28 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
 		*encoder_position = 32767;
 	}
 
-	// Detect if we passed the bottom, then re-arm peak flag
+	/*
+	 *  Detect if we passed the bottom, then re-arm peak flag
+	 *  oppositeSigns returns true when we pass the bottom position
+	 */
 	if (oppositeSigns(*encoder_position, previous_encoder_position))
 	{
 		peaked = false;
 		zero_crossed = true;
 	}
 
-	if (!peaked)
+	if (!peaked) // We don't need to evaluate anymore if we hit a maximum when we're still in downward motion and didn't cross the minimum
 	{
-		// Check if higher than previous
+		// Check if new maximum
 		if (abs(*encoder_position) >= abs(max_encoder_position))
 		{
 			max_encoder_position = *encoder_position;
 		}
 		else
 		{
-			// Disable check until revisiting bottom
+			/*
+			 * We are at the peak and disable further checks until we traversed the minimum position again
+			 */
 			peaked = true;
 			handled_peak = false;
 		}
@@ -203,8 +240,10 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 #if MOVE_MOTOR
+  // Start the PWM interrupt driven. This ensures HAL_TIM_PWM_PulseFinishedCallback() in stm32f4xx_hal_msp.c is called and we can proxy the PWM to the needed PWM pin for the motor
   HAL_TIM_PWM_Start_IT(&htim2, TIM_CHANNEL_2);
 #endif
+
 #if READ_ENCODER
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
 #endif
@@ -213,11 +252,13 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   char tmp_string[32];
+
 #if MOVE_MOTOR
+  // Initialize the board for one motor
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 1);
+
+  // Set params defined above
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
-
-
 
   // Attach handlers
   BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);
@@ -227,7 +268,7 @@ int main(void)
   {
 #if MOVE_MOTOR
 	  /*
-	  // Let motor wiggle around
+	  // Let motor run back and forth.
 	  BSP_MotorControl_GoTo(0, 300);
 	  BSP_MotorControl_WaitWhileActive(0);
 	  HAL_Delay(400);
@@ -243,22 +284,32 @@ int main(void)
 	  {
 		  BSP_MotorControl_HardStop(0);
 	  }
-
 #endif
+
 #if READ_ENCODER
 	  encoder_position_read(&encoder_position, &htim3);
 	  sprintf(tmp_string,"%d\r\n", encoder_position);
 	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+	  ITM_SendString(tmp_string);
 
-	  // We have a peaked but did not handle it yet
+	  // We have a peak but did not handle it yet
 	  if (peaked && !handled_peak)
 	  {
-		  max_encoder_position = 0;
+		  // Ensure we only do not reenter this branch without need
 		  handled_peak = true;
+
+		  // Reset maximum encoder value to reassess after crossing the bottom
+		  max_encoder_position = 0;
+
+		  // Switch motor direction
 		  direction = direction == FORWARD ? BACKWARD : FORWARD;
+
+		  // Turn off motor
 		  doMotor = false;
+
 		  sprintf(tmp_string,"PEAK\r\n");
 		  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+		  ITM_SendString(tmp_string);
 	  }
 
 #if MOVE_MOTOR
@@ -271,10 +322,13 @@ int main(void)
 			  BSP_MotorControl_SetMaxSpeed(0,BSP_MotorControl_GetMaxSpeed(0) + 50);
 		  }
 		  */
+
+		  // The pendulum swung through the bottom position. We'll turn the motor on again.
 		  doMotor = true;
 		  zero_crossed = false;
 	  }
 #endif
+	  // Maybe we should remove that one?
 	  HAL_Delay(100);
 #endif
     /* USER CODE END WHILE */
@@ -332,10 +386,12 @@ void SystemClock_Config(void)
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
+  *
+  * The device initialization SHOULD not be necessary as the IHM01A! does this itself.
+  * TODO: Remove in later revision?
   */
 static void MX_SPI1_Init(void)
 {
-
   /* USER CODE BEGIN SPI1_Init 0 */
 
   /* USER CODE END SPI1_Init 0 */
@@ -370,6 +426,9 @@ static void MX_SPI1_Init(void)
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
+  *
+  * The device initialization SHOULD not be necessary as the IHM01A! does this itself.
+  *	TODO: Remove in later revision?
   */
 static void MX_TIM2_Init(void)
 {
@@ -419,12 +478,15 @@ static void MX_TIM2_Init(void)
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
+  *
+  * The device initialization SHOULD not be necessary as the IHM01A! does this itself.
+  *	TODO: Remove in later revision?
   */
 static void MX_TIM3_Init(void)
 {
 
   /* USER CODE BEGIN TIM3_Init 0 */
-
+	// This code initializes TIM3 to read the rotary encoder
   /* USER CODE END TIM3_Init 0 */
 
   TIM_Encoder_InitTypeDef sConfig = {0};
@@ -522,6 +584,8 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 /**
+  * We can react here to messages from the IHM01A1 if needed
+  *
   * @brief  This function is the User handler for the flag interrupt
   * @param  None
   * @retval None
