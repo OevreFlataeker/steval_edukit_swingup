@@ -15,6 +15,7 @@
   *
   * Thus a trick is used here:
   * We use TIM2 to create the actual PWM signal and once the signal is output we copy/replay the wave form MANUALLY through the desired pin PC7.
+  * Unfortunately this also requires "patching" the file x_nucleo_ihm01a1_stm32f4xx.h of the BSP in order to switch TIM3 and TIM2 on all relevant code portions.
   *
   * See void "HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)" in stm32f4xx_hal_msp.c for details how this is done.
   * All peripherals are configured using CubeMX integration/.ioc file. However the IHM01A1 code seems to do this on it's own (ref file x_nucleo_ihm01a1_stm32f4xx.L6474_Board_SpiInit() and L6474_Board_PwmInit())
