@@ -84,12 +84,12 @@ L6474_Init_t gL6474InitParams =
     160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
     160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
     1000,                              /// Maximum speed in step/s. Range: (30..10000].
-    500,                               ///Minimum speed in step/s. Range: [30..10000).
+    650,                               ///Minimum speed in step/s. Range: [30..10000).
     1000,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
     2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
     L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
     L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
-    L6474_STEP_SEL_1_4,               /// Step selection (STEP_SEL field of STEP_MODE register).
+    L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
     L6474_SYNC_SEL_1,                /// Sync selection (SYNC_SEL field of STEP_MODE register).
     L6474_FAST_STEP_12us,              /// Fall time value (T_FAST field of T_FAST register). Range: 2us to 32us.
     L6474_TOFF_FAST_8us,               /// Maximum fast decay time (T_OFF field of T_FAST register). Range: 2us to 32us.
@@ -309,7 +309,7 @@ int main(void)
 	  if (doMotor)
 	  {
 		  doMotor = false;
-		  BSP_MotorControl_Move(0, direction, 50);
+		  BSP_MotorControl_Move(0, direction, 150);
 
 
 		  BSP_MotorControl_WaitWhileActive(0);
