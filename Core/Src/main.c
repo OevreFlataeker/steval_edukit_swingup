@@ -13,6 +13,10 @@
   * is read using TIM3 in quadrature encoder mode (i.e. the external signal of the encoder "drives" the timer forwards and backwards).
   * Unfortunately, the IHM01A1 code expects to get the PWM signal to drive the motor from TIM3 (via PC7, alternate function TIM3_CH2) but both things are of course not possible at once.
   *
+  * Motor Power Supply:	12V 2A Supply
+  * Encoder:			LPD3806-600BM-G5-24C 600 Pulse Per Revolution Incremental Rotary Encoder
+  * Stepper Motor:		NEMA-17 17HS19-2004S  Stepper Motor
+  * (https://www.omc-stepperonline.com/download/17HS19-2004S1.pdf)
   * Thus a trick is used here:
   * We use TIM2 to create the actual PWM signal and once the signal is output we copy/replay the wave form MANUALLY through the desired pin PC7.
   * Unfortunately this also requires "patching" the file x_nucleo_ihm01a1_stm32f4xx.h of the BSP in order to switch TIM3 and TIM2 on all relevant code portions.
@@ -65,11 +69,10 @@ TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
-static volatile uint16_t gLastError;
-
 /* USER CODE BEGIN PV */
 int encoder_position = 0, max_encoder_position = 0, previous_encoder_position = 0;
 bool handled_peak = false, peaked = false, zero_crossed;
+uint16_t gLastError = 0;
 
 /*
  * The following initialization struct is a little bit trial n error:
@@ -80,10 +83,37 @@ L6474_Init_t gL6474InitParams =
 {
     160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
     160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
-    1600,                              /// Maximum speed in step/s. Range: (30..10000].
-    800,                               ///Minimum speed in step/s. Range: [30..10000).
-    800,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
+    1000,                              /// Maximum speed in step/s. Range: (30..10000].
+    500,                               ///Minimum speed in step/s. Range: [30..10000).
+    1000,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
     2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
+    L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
+    L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
+    L6474_STEP_SEL_1_4,               /// Step selection (STEP_SEL field of STEP_MODE register).
+    L6474_SYNC_SEL_1,                /// Sync selection (SYNC_SEL field of STEP_MODE register).
+    L6474_FAST_STEP_12us,              /// Fall time value (T_FAST field of T_FAST register). Range: 2us to 32us.
+    L6474_TOFF_FAST_8us,               /// Maximum fast decay time (T_OFF field of T_FAST register). Range: 2us to 32us.
+    3,                                 /// Minimum ON time in us (TON_MIN register). Range: 0.5us to 64us.
+    21,                                /// Minimum OFF time in us (TOFF_MIN register). Range: 0.5us to 64us.
+    L6474_CONFIG_TOFF_044us,           /// Target Swicthing Period (field TOFF of CONFIG register).
+    L6474_CONFIG_SR_320V_us,           /// Slew rate (POW_SR field of CONFIG register).
+    L6474_CONFIG_INT_16MHZ,            /// Clock setting (OSC_CLK_SEL field of CONFIG register).
+    (L6474_ALARM_EN_OVERCURRENT      |
+     L6474_ALARM_EN_THERMAL_SHUTDOWN |
+     L6474_ALARM_EN_THERMAL_WARNING  |
+     L6474_ALARM_EN_UNDERVOLTAGE     |
+     L6474_ALARM_EN_SW_TURN_ON       |
+     L6474_ALARM_EN_WRONG_NPERF_CMD)    /// Alarm (ALARM_EN register).
+};
+
+L6474_Init_t gL6474InitParams_SwingUp =
+{
+    160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
+    160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
+    1600,                              /// Maximum speed in step/s. Range: (30..10000].
+    1,                               ///Minimum speed in step/s. Range: [30..10000).
+    600,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
+	2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
     L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
     L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
     L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
@@ -112,11 +142,12 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
-
 /* USER CODE BEGIN PFP */
 bool oppositeSigns(int x, int y);
 void ITM_SendString(char *str);
 int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer);
+void MyFlagInterruptHandler(void);
+void Motor_Error_Handler(uint16_t error);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -178,6 +209,7 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
 	{
 		peaked = false;
 		zero_crossed = true;
+		ITM_SendString("Zero!");
 	}
 
 	if (!peaked) // We don't need to evaluate anymore if we hit a maximum when we're still in downward motion and didn't cross the minimum
@@ -213,7 +245,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
 #if MOVE_MOTOR
 	motorDir_t direction = FORWARD;
-	bool doMotor = true;
+	bool doMotor = false;
 #endif
   /* USER CODE END 1 */
 
@@ -253,7 +285,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   char tmp_string[32];
-
+  //int32_t pos = 0;
 #if MOVE_MOTOR
   // Initialize the board for one motor
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 1);
@@ -265,33 +297,34 @@ int main(void)
   BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);
   BSP_MotorControl_AttachErrorHandler(Motor_Error_Handler);
 #endif
+
+  // Kick start
+  BSP_MotorControl_Move(0, direction, 100);
+  BSP_MotorControl_WaitWhileActive(0);
+
   while (true)
   {
 #if MOVE_MOTOR
-	  /*
-	  // Let motor run back and forth.
-	  BSP_MotorControl_GoTo(0, 300);
-	  BSP_MotorControl_WaitWhileActive(0);
-	  HAL_Delay(400);
-	  BSP_MotorControl_GoTo(0, -300);
-	  BSP_MotorControl_WaitWhileActive(0);
-	  HAL_Delay(400);
-	  */
+
 	  if (doMotor)
 	  {
-		  BSP_MotorControl_Run(0, direction);
+		  doMotor = false;
+		  BSP_MotorControl_Move(0, direction, 50);
+
+
+		  BSP_MotorControl_WaitWhileActive(0);
 	  }
 	  else
 	  {
-		  BSP_MotorControl_HardStop(0);
+		  //BSP_MotorControl_HardStop(0);
 	  }
 #endif
 
 #if READ_ENCODER
 	  encoder_position_read(&encoder_position, &htim3);
 	  sprintf(tmp_string,"%d\r\n", encoder_position);
-	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
-	  ITM_SendString(tmp_string);
+	  //HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+	  //ITM_SendString(tmp_string);
 
 	  // We have a peak but did not handle it yet
 	  if (peaked && !handled_peak)
@@ -330,7 +363,7 @@ int main(void)
 	  }
 #endif
 	  // Maybe we should remove that one?
-	  HAL_Delay(100);
+	  // HAL_Delay(100);
 #endif
     /* USER CODE END WHILE */
 
@@ -387,12 +420,10 @@ void SystemClock_Config(void)
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
-  *
-  * The device initialization SHOULD not be necessary as the IHM01A! does this itself.
-  * TODO: Remove in later revision?
   */
 static void MX_SPI1_Init(void)
 {
+
   /* USER CODE BEGIN SPI1_Init 0 */
 
   /* USER CODE END SPI1_Init 0 */
@@ -427,9 +458,6 @@ static void MX_SPI1_Init(void)
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
-  *
-  * The device initialization SHOULD not be necessary as the IHM01A! does this itself.
-  *	TODO: Remove in later revision?
   */
 static void MX_TIM2_Init(void)
 {
@@ -479,9 +507,6 @@ static void MX_TIM2_Init(void)
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
-  *
-  * The device initialization SHOULD not be necessary as the IHM01A! does this itself.
-  *	TODO: Remove in later revision?
   */
 static void MX_TIM3_Init(void)
 {
