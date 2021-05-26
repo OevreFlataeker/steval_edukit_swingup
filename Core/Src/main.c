@@ -85,39 +85,12 @@ L6474_Init_t gL6474InitParams =
     160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
     1000,                              /// Maximum speed in step/s. Range: (30..10000].
     650,                               ///Minimum speed in step/s. Range: [30..10000).
-    1000,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
+    1200,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
     2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
     L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
     L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
     L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
-    L6474_SYNC_SEL_1,                /// Sync selection (SYNC_SEL field of STEP_MODE register).
-    L6474_FAST_STEP_12us,              /// Fall time value (T_FAST field of T_FAST register). Range: 2us to 32us.
-    L6474_TOFF_FAST_8us,               /// Maximum fast decay time (T_OFF field of T_FAST register). Range: 2us to 32us.
-    3,                                 /// Minimum ON time in us (TON_MIN register). Range: 0.5us to 64us.
-    21,                                /// Minimum OFF time in us (TOFF_MIN register). Range: 0.5us to 64us.
-    L6474_CONFIG_TOFF_044us,           /// Target Swicthing Period (field TOFF of CONFIG register).
-    L6474_CONFIG_SR_320V_us,           /// Slew rate (POW_SR field of CONFIG register).
-    L6474_CONFIG_INT_16MHZ,            /// Clock setting (OSC_CLK_SEL field of CONFIG register).
-    (L6474_ALARM_EN_OVERCURRENT      |
-     L6474_ALARM_EN_THERMAL_SHUTDOWN |
-     L6474_ALARM_EN_THERMAL_WARNING  |
-     L6474_ALARM_EN_UNDERVOLTAGE     |
-     L6474_ALARM_EN_SW_TURN_ON       |
-     L6474_ALARM_EN_WRONG_NPERF_CMD)    /// Alarm (ALARM_EN register).
-};
-
-L6474_Init_t gL6474InitParams_SwingUp =
-{
-    160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
-    160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
-    1600,                              /// Maximum speed in step/s. Range: (30..10000].
-    1,                               ///Minimum speed in step/s. Range: [30..10000).
-    600,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
-	2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
-    L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
-    L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
-    L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
-    L6474_SYNC_SEL_1_2,                /// Sync selection (SYNC_SEL field of STEP_MODE register).
+    L6474_SYNC_SEL_1,                  /// Sync selection (SYNC_SEL field of STEP_MODE register).
     L6474_FAST_STEP_12us,              /// Fall time value (T_FAST field of T_FAST register). Range: 2us to 32us.
     L6474_TOFF_FAST_8us,               /// Maximum fast decay time (T_OFF field of T_FAST register). Range: 2us to 32us.
     3,                                 /// Minimum ON time in us (TON_MIN register). Range: 0.5us to 64us.
@@ -186,7 +159,7 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
 
 	if (cnt3 >= 32768) {
 		*encoder_position = (int) (cnt3);
-		*encoder_position = *encoder_position - 65536;
+		*encoder_position = (*encoder_position - 65536);
 	} else {
 		*encoder_position = (int) (cnt3);
 	}
@@ -245,7 +218,6 @@ int main(void)
   /* USER CODE BEGIN 1 */
 #if MOVE_MOTOR
 	motorDir_t direction = FORWARD;
-	bool doMotor = false;
 #endif
   /* USER CODE END 1 */
 
@@ -299,31 +271,25 @@ int main(void)
 #endif
 
   // Kick start
-  BSP_MotorControl_Move(0, direction, 100);
+  BSP_MotorControl_Move(0, direction, 200);
   BSP_MotorControl_WaitWhileActive(0);
 
   while (true)
   {
 #if MOVE_MOTOR
 
-	  if (doMotor)
+	  if (zero_crossed)
 	  {
-		  doMotor = false;
-		  BSP_MotorControl_Move(0, direction, 150);
-
-
+		  zero_crossed = false;
+		  BSP_MotorControl_Move(0, direction, 200);
 		  BSP_MotorControl_WaitWhileActive(0);
-	  }
-	  else
-	  {
-		  //BSP_MotorControl_HardStop(0);
 	  }
 #endif
 
 #if READ_ENCODER
 	  encoder_position_read(&encoder_position, &htim3);
 	  sprintf(tmp_string,"%d\r\n", encoder_position);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
 	  //ITM_SendString(tmp_string);
 
 	  // We have a peak but did not handle it yet
@@ -338,30 +304,10 @@ int main(void)
 		  // Switch motor direction
 		  direction = direction == FORWARD ? BACKWARD : FORWARD;
 
-		  // Turn off motor
-		  doMotor = false;
-
 		  sprintf(tmp_string,"PEAK\r\n");
 		  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
 		  ITM_SendString(tmp_string);
 	  }
-
-#if MOVE_MOTOR
-	  if (zero_crossed)
-	  {
-		  /*
-		  // Increasing speed didn't really help after some iterations.
-		  if (BSP_MotorControl_GetMaxSpeed(0) < 1000)
-		  {
-			  BSP_MotorControl_SetMaxSpeed(0,BSP_MotorControl_GetMaxSpeed(0) + 50);
-		  }
-		  */
-
-		  // The pendulum swung through the bottom position. We'll turn the motor on again.
-		  doMotor = true;
-		  zero_crossed = false;
-	  }
-#endif
 	  // Maybe we should remove that one?
 	  // HAL_Delay(100);
 #endif
