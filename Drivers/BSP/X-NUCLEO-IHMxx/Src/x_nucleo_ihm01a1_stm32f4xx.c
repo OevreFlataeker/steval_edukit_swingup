@@ -214,6 +214,21 @@ void L6474_Board_GpioInit(uint8_t deviceId)
   }
 }
 
+
+/******************************************************//**
+ * @brief  Sets the period of PWM1 used by device 0
+ * @param[in] period in counter increments
+ * @retval None
+ **********************************************************/
+void L6474_Board_Pwm1SetPeriod(uint32_t period)
+{
+  __HAL_TIM_SetAutoreload(&hTimPwm1, period-1);
+//  __HAL_TIM_SetCompare(&hTimPwm1, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM1, period >> 1);
+  if (hTimPwm1.Instance->CCER == 0) { // Check if a capture compare channel has not been enabled yet
+	  HAL_TIM_PWM_Start_IT(&hTimPwm1, BSP_MOTOR_CONTROL_BOARD_CHAN_TIMER_PWM1);
+  }
+}
+
 /******************************************************//**
  * @brief  Sets the frequency of PWM1 used by device 0
  * @param[in] newFreq in Hz
