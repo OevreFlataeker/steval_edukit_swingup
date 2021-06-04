@@ -88,6 +88,7 @@ void L6474_Board_Delay(uint32_t delay);         //Delay of the requested number 
 void L6474_Board_DisableIrq(void);              //Disable Irq
 void L6474_Board_EnableIrq(void);               //Enable Irq
 void L6474_Board_GpioInit(uint8_t deviceId);   //Initialise GPIOs used for L6474s
+uint32_t L6474_Board_Pwm1GetCounter();
 void L6474_Board_Pwm1SetFreq(uint16_t newFreq); //Set PWM1 frequency and start it
 void L6474_Board_Pwm2SetFreq(uint16_t newFreq); //Set PWM2 frequency and start it  
 void L6474_Board_Pwm3SetFreq(uint16_t newFreq); //Set PWM3 frequency and start it
@@ -213,6 +214,16 @@ void L6474_Board_GpioInit(uint8_t deviceId)
         break;
   }
 }
+
+
+/******************************************************//**
+ * @brief  Returns the current value of the counter used by PWM1, used by device 0
+ * @retval the counter value
+ **********************************************************/
+uint32_t L6474_Board_Pwm1GetCounter() {
+	return hTimPwm1.Instance->CNT;
+}
+
 
 
 /******************************************************//**

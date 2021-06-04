@@ -299,6 +299,8 @@
 
 /// SPI MOSI AF
 #define SPIx_MOSI_AF                     (SPIx_SCK_AF)
+
+
 /**
   * @}
   */

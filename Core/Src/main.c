@@ -4,31 +4,39 @@
   * @file           : main.c
   * @brief          : Main program body
   ******************************************************************************
-  * Demo project for the STEVAL-EDUKIT pendulum system.
+  * Demo project for the STEVAL-EDUKIT pendulum system by @daubsi
   * This code tries to swing up the pendulum up into the upright position to let then
   * take over the existing demo code from ST to keep it upright.
-  *
-  * Explanation of overall setup:
-  * The integration of the rotary encoder to read the pendulum angle complicates the vanilla setup as the encoder
-  * is read using TIM3 in quadrature encoder mode (i.e. the external signal of the encoder "drives" the timer forwards and backwards).
-  * Unfortunately, the IHM01A1 code expects to get the PWM signal to drive the motor from TIM3 (via PC7, alternate function TIM3_CH2) but both things are of course not possible at once.
   *
   * Motor Power Supply:	12V 2A Supply
   * Encoder:			LPD3806-600BM-G5-24C 600 Pulse Per Revolution Incremental Rotary Encoder
   * Stepper Motor:		NEMA-17 17HS19-2004S  Stepper Motor
   * (https://www.omc-stepperonline.com/download/17HS19-2004S1.pdf)
+  *
+  * Explanation of overall setup:
+  * The integration of the rotary encoder to read the pendulum angle complicates the vanilla setup as the encoder
+  * is read using TIM3 in quadrature encoder mode (i.e. the external signal of the encoder "drives" the timer forwards and backwards).
+  * Unfortunately, the IHM01A1 code expects to get the PWM signal to drive the motor from TIM3 (via PC7, alternate function TIM3_CH2) too
+  * but both configurations are of course not possible at once.
+  *
+  * The only importand files are main.c and stm32f4xx_hal_msp.c here.
+  * Use the .ioc file to check how the peripherals are configured and initialized. This is done fully manual in the ST provided demo code but I wanted to have a proper CubeMX init file for further development.
+  *
   * Thus a trick is used here:
   * We use TIM2 to create the actual PWM signal and once the signal is output we copy/replay the wave form MANUALLY through the desired pin PC7.
-  * Unfortunately this also requires "patching" the file x_nucleo_ihm01a1_stm32f4xx.h of the BSP in order to switch TIM3 and TIM2 on all relevant code portions.
+  * Unfortunately this also requires patching the file x_nucleo_ihm01a1_stm32f4xx.h of the BSP in order to switch TIM3 and TIM2 on all relevant code portions which is unfortunate.
+  * However, this project has imported the relevant BSP files directly and is not linking them, so no generic source files are changed.
   *
-  * See void "HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)" in stm32f4xx_hal_msp.c for details how this is done.
-  * All peripherals are configured using CubeMX integration/.ioc file. However the IHM01A1 code seems to do this on it's own (ref file x_nucleo_ihm01a1_stm32f4xx.L6474_Board_SpiInit() and L6474_Board_PwmInit())
-  * Presumable the functions HAL_TIM_MspPostInit(), HAL_TIM_PWM_MspInit(), HAL_SPI_MspInit(), ... in file stm32f4xx_hal_msp.c are not really needed therefore.
-  * If this assumption holds, they will be removed in a later version.
+  * See "void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)" in stm32f4xx_hal_msp.c for details how this "PWM relaying" is done.
+  * All peripherals are configured using CubeMX integration/.ioc file. However the IHM01A1 code seems to do this on it's own (ref file x_nucleo_ihm01a1_stm32f4xx.c's L6474_Board_SpiInit() and L6474_Board_PwmInit())
+  * Presumably the functions HAL_TIM_MspPostInit(), HAL_TIM_PWM_MspInit(), HAL_SPI_MspInit(), ... in file stm32f4xx_hal_msp.c are supposed to not be really needed therefore.
+  * If this assumption holds, they can be removed in a later version.
   *
-  * The current version manages to have the pendulum swing up for a little bit over the horizontal plane but fails to get it any higher.
-  * I presume this is due to the rotary motion counter-acting against the forward/backward acceleration of the motor. Both need to be smoothly synchronized.
+  * The current version still has some shortcomings:
+  * - Swing up takes rather long (it works better/faster when patched into the ST provided firmware due to the overall motor parameters used there)
+  * - Crossing the upright position confuses the encoder readout and no bottom crossing is recognized anymore, in other words: Swing-up only works once. Needs fixing
   *
+  * Noteworthy data is logged via USART2 via the STLink to the PC (8N1, 230400 Baud) but are also sent via ITM (Needs activiation in Debug Configuration profile in STM32CubeIDE, not described here)
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -52,6 +60,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+// We can disable some code if we just want to play around with the motor or the encoder separately.
 #define MOVE_MOTOR 1
 #define READ_ENCODER 1
 /* USER CODE END PD */
@@ -76,21 +86,23 @@ uint16_t gLastError = 0;
 
 /*
  * The following initialization struct is a little bit trial n error:
- * Overcurrent threshold (2000) should not be higher than the current your power supply is able to deliver
- * Acceleration and speed settings can be played with and they seem to affect the counter-acting forces to a certain extent.
+ * Overcurrent threshold (2000) should not be higher than the current your power supply is able to deliver or the motor can handle
+ * Acceleration and speed settings can be played with
  */
 L6474_Init_t gL6474InitParams =
 {
-    160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
-    160,                               /// Deceleration rate in step/s2. Range: (0..+inf).
-    1000,                              /// Maximum speed in step/s. Range: (30..10000].
-    650,                               ///Minimum speed in step/s. Range: [30..10000).
-    1200,                               ///Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA.
-    2000,                              ///Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA.
-    L6474_CONFIG_OC_SD_ENABLE,         ///Overcurrent shutwdown (OC_SD field of CONFIG register).
+    160,                               /// Acceleration rate in step/s2. Range: (0..+inf). - default settings: can be tweaked if needed
+    160,                               /// Deceleration rate in step/s2. Range: (0..+inf). - default settings: can be tweaked if needed
+    1000,                              /// Maximum speed in step/s. Range: (30..10000]. - default settings: can be tweaked if needed
+    650,                               /// Minimum speed in step/s. Range: [30..10000). - default settings: can be tweaked if needed
+    850,                               /// Torque regulation current in mA. (TVAL register) Range: 31.25mA to 4000mA. - we don't need more than this, the bundled motor's coils can handle up to 2A though
+    2000,                              /// Overcurrent threshold (OCD_TH register). Range: 375mA to 6000mA. - maximum current in system = min(power_supply, motor's coils) -> Our power supply can only deliver 2A and we should stay below
+									   /// The numbers actually have fixed values according to L6474's datasheet. But manual setting them is ok for now.
+    L6474_CONFIG_OC_SD_ENABLE,         /// Overcurrent shutwdown (OC_SD field of CONFIG register).
     L6474_CONFIG_EN_TQREG_TVAL_USED,   /// Torque regulation method (EN_TQREG field of CONFIG register).
-    L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register).
-    L6474_SYNC_SEL_1,                  /// Sync selection (SYNC_SEL field of STEP_MODE register).
+    L6474_STEP_SEL_1_16,               /// Step selection (STEP_SEL field of STEP_MODE register). - We want to have a very fine grained control
+									   /// Changing this needs change of all motor commands as "Move(200)" in 1/16 mode is much less movement then in 1/1 mode for example!
+    L6474_SYNC_SEL_1,                  /// Sync selection (SYNC_SEL field of STEP_MODE register). - Needs to be set to SEL_1
     L6474_FAST_STEP_12us,              /// Fall time value (T_FAST field of T_FAST register). Range: 2us to 32us.
     L6474_TOFF_FAST_8us,               /// Maximum fast decay time (T_OFF field of T_FAST register). Range: 2us to 32us.
     3,                                 /// Minimum ON time in us (TON_MIN register). Range: 0.5us to 64us.
@@ -116,11 +128,13 @@ static void MX_TIM3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-bool oppositeSigns(int x, int y);
-void ITM_SendString(char *str);
-int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer);
+
 void MyFlagInterruptHandler(void);
 void Motor_Error_Handler(uint16_t error);
+void ITM_SendString(char *str);
+bool oppositeSigns(int x, int y);
+int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -136,7 +150,7 @@ bool oppositeSigns(int x, int y)
 }
 
 /*
- * Prints a string via ITM
+ * Prints a string via ITM. SWO/SWV needs to be enabled in debug configuration profile
  */
 void ITM_SendString(char *ptr)
 {
@@ -194,9 +208,7 @@ int encoder_position_read(int *encoder_position, TIM_HandleTypeDef *htimer) {
 		}
 		else
 		{
-			/*
-			 * We are at the peak and disable further checks until we traversed the minimum position again
-			 */
+			// We are at the peak and disable further checks until we traversed the minimum position again
 			peaked = true;
 			handled_peak = false;
 		}
@@ -262,7 +274,7 @@ int main(void)
   // Initialize the board for one motor
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 1);
 
-  // Set params defined above
+  // Set params defined above, use NULL for default values
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
 
   // Attach handlers
@@ -281,6 +293,7 @@ int main(void)
 	  if (zero_crossed)
 	  {
 		  zero_crossed = false;
+		  // Push it aka put some more kinetic energy into the pendulum
 		  BSP_MotorControl_Move(0, direction, 200);
 		  BSP_MotorControl_WaitWhileActive(0);
 	  }
@@ -290,12 +303,12 @@ int main(void)
 	  encoder_position_read(&encoder_position, &htim3);
 	  sprintf(tmp_string,"%d\r\n", encoder_position);
 	  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
-	  //ITM_SendString(tmp_string);
+	  ITM_SendString(tmp_string);
 
 	  // We have a peak but did not handle it yet
 	  if (peaked && !handled_peak)
 	  {
-		  // Ensure we only do not reenter this branch without need
+		  // Ensure we only enter this branch one per peak
 		  handled_peak = true;
 
 		  // Reset maximum encoder value to reassess after crossing the bottom
@@ -308,8 +321,6 @@ int main(void)
 		  HAL_UART_Transmit(&huart2, (uint8_t*) tmp_string, strlen(tmp_string), HAL_MAX_DELAY);
 		  ITM_SendString(tmp_string);
 	  }
-	  // Maybe we should remove that one?
-	  // HAL_Delay(100);
 #endif
     /* USER CODE END WHILE */
 

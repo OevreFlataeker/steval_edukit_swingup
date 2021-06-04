@@ -380,22 +380,21 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
 
 /* USER CODE BEGIN 1 */
 
-int Delay_Pulse()
-{
-	return 0;
-}
-
+/*
+ * Proxy PWM signal of TIM2 to GPIO C7.
+ * Needed because TIM3 cannot be used for PWM as it is used for reading the encoder via quadrature encoder mode.
+ * The IHM01A1 expects the PWM signal on C7 as the physical pin for TIM3_CH2 though.
+ * Thus TIM2 is used for PWM generation and "replayed" manually via this handler
+ */
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
-
 	if ((htim->Instance == TIM2) && (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2))
 	{
-		int delay_pulse = Delay_Pulse();
-		if (delay_pulse == 0)
-		{
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
-		}
+		// We replay the PWM signal of TIM2 through our GPIO C7
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
+
+		// ... and send the motor the signal to do one step.
 		if (BSP_MotorControl_GetDeviceState(0) != INACTIVE)
 		{
 			BSP_MotorControl_StepClockHandler(0);
