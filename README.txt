@@ -52,4 +52,7 @@ on the product page itself still is an old version.
 
  The swing-up code can be easily integrated into the ST provided sources (not done here)
 
-
+20210616: v3 of the EDUKIT firmware has been published which incorporates the essence of the swing-up code.
+Please refer to version 3.0 of the firmware available from the project page at: 
+https://drive.google.com/file/d/1iIQZ4iUZDyy4EnBHb67mchZSPRWiUIK8/view
+https://drive.google.com/file/d/1blLjVmdHWpM5Fxm3sqMHc_Uhsn8pHlkY/view
